@@ -1,0 +1,119 @@
+<h2 class="title">Ubicaciones</h2>
+
+<div class="container" [formGroup]="form">
+  <!-- Mensajes -->
+  <div *ngIf="successMessage" class="msg msg-success">{{ successMessage }}</div>
+  <div *ngIf="errorMessage" class="msg msg-error">{{ errorMessage }}</div>
+
+  <section class="row controls">
+    <div class="col">
+      <label>País</label>
+      <select (change)="onPaisChange()" formControlName="paisId">
+        <option [ngValue]="null">Seleccione País</option>
+        <option *ngFor="let p of paises" [ngValue]="p.id">{{ p.nombre }}</option>
+      </select>
+    </div>
+
+    <div class="col">
+      <label>Departamento</label>
+      <select (change)="onDepartamentoChange()" formControlName="departamentoId">
+        <option [ngValue]="null">Seleccione Departamento</option>
+        <option *ngFor="let d of departamentos" [ngValue]="d.id">{{ d.nombre }}</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="cards">
+    <div class="card">
+      <h3>Crear País</h3>
+      <input formControlName="nombrePais" placeholder="Nombre del país" autocomplete="off">
+      <div class="actions">
+        <button type="button" (click)="crearPais()" [disabled]="loadingPais || !form.get('nombrePais')?.value">Guardar</button>
+        <span *ngIf="loadingPais" class="spinner" aria-hidden="true"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Crear Departamento</h3>
+      <input formControlName="nombreDepartamento" placeholder="Nombre" autocomplete="off">
+      <div class="actions">
+        <button type="button" (click)="crearDepartamento()" [disabled]="loadingDepartamento || !form.get('paisId')?.value || !form.get('nombreDepartamento')?.value">Guardar</button>
+        <span *ngIf="loadingDepartamento" class="spinner" aria-hidden="true"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Crear Ciudad</h3>
+      <input formControlName="nombreCiudad" placeholder="Nombre" autocomplete="off">
+      <div class="actions">
+        <button type="button" (click)="crearCiudad()" [disabled]="loadingCiudad || !form.get('departamentoId')?.value || !form.get('nombreCiudad')?.value">Guardar</button>
+        <span *ngIf="loadingCiudad" class="spinner" aria-hidden="true"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="list">
+    <h3>Ciudades</h3>
+    <ul>
+      <li *ngFor="let c of ciudades">{{ c.nombre }}</li>
+    </ul>
+  </section>
+
+  <!-- Nueva sección: tabla combinada -->
+  <section class="table-section">
+    <h3>Todos los registros</h3>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>País</th>
+          <th>Departamento</th>
+          <th>Ciudad</th>
+          <th>Acciones</th> <!-- nueva columna -->
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let r of tabla">
+          <td>
+            <!-- bandera a la izquierda -->
+            <img *ngIf="r.paisFlag" [src]="r.paisFlag" alt="flag" class="flag" style="width:24px;height:16px;vertical-align:middle;margin-right:8px;border:1px solid #ddd;">
+            <!-- emoji con tooltip que contiene la recomendación de API -->
+            <span title="🌍 APIs recomendadas para banderas de países\n1. REST Countries API\nURL base: https://restcountries.com/v3.1/name/{country}\nEjemplo: GET https://restcountries.com/v3.1/name/colombia\nRespuesta JSON incluye: { name:{common: 'Colombia'}, flags:{ png: 'https://flagcdn.com/w320/co.png', svg: 'https://flagcdn.com/co.svg' } }" style="margin-right:6px;">🌍</span>
+            {{ r.paisNombre }}
+          </td>
+          <td>{{ r.departamentoNombre }}</td>
+          <td>{{ r.ciudadNombre }}</td>
+          <td class="row-actions">
+            <button type="button" class="btn btn-edit" (click)="openEditWindow(r)">Editar</button>
+            <button type="button" class="btn btn-danger" (click)="deleteRow(r)">Eliminar</button>
+          </td>
+        </tr>
+        <tr *ngIf="tabla.length === 0">
+          <td colspan="4" class="empty">No se encontraron registros</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Modal embebido para editar -->
+  <div class="modal-overlay" *ngIf="editModalOpen">
+    <div class="modal">
+      <h3>Editar Datos</h3>
+      <form [formGroup]="editForm" class="modal-form">
+        <label>País (id: {{ editIds.paisId }})</label>
+        <input formControlName="paisNombre" />
+
+        <label>Departamento (id: {{ editIds.departamentoId }})</label>
+        <input formControlName="departamentoNombre" />
+
+        <label>Ciudad (id: {{ editIds.ciudadId }})</label>
+        <input formControlName="ciudadNombre" />
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-cancel" (click)="closeEditModal()">Cancelar</button>
+          <button type="button" class="btn btn-edit" (click)="saveEdit()">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
