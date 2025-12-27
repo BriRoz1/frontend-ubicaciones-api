@@ -8,6 +8,20 @@ import { Pais } from '../../services/pais';
 import { Departamento } from '../../services/departamento';
 import { Ciudad } from '../../services/ciudad';
 
+/**
+ * Página de Ubicaciones
+ * ---------------------
+ * Este componente gestiona la lista de países, departamentos y ciudades.
+ * - Permite crear países, departamentos y ciudades.
+ * - Carga banderas (flagUrl) consultando la API pública "REST Countries" por nombre de país.
+ * - Muestra una tabla combinada (país - departamento - ciudad) con acciones de editar/eliminar.
+ *
+ * - Las funciones de refresco actualizan los arrays locales (paises, departamentos, ciudades)
+ *   y reconstruyen la tabla combinada.
+ * - Las operaciones CRUD usan los servicios inyectados: paisService, departamentoService, ciudadService.
+ */
+
+/** Componente principal */
 @Component({
   selector: 'app-ubicaciones',
   standalone: true,
@@ -22,7 +36,6 @@ export class Ubicaciones implements OnInit {
   ciudades: any[] = [];
   tabla: any[] = [];
 
-  // loading flags
   loadingPais = false;
   loadingDepartamento = false;
   loadingCiudad = false;
@@ -32,11 +45,10 @@ export class Ubicaciones implements OnInit {
   successMessage: string | null = null;
   errorMessage: string | null = null;
 
-  // edit modal state
+
   editModalOpen = false;
   editIds: { paisId: number | null, departamentoId: number | null, ciudadId: number | null } = { paisId: null, departamentoId: null, ciudadId: null };
-  editForm: FormGroup; // do not initialize here (fb not ready)
-
+  editForm: FormGroup; 
   constructor(
     private fb: FormBuilder,
     private paisService: Pais,
@@ -45,12 +57,12 @@ export class Ubicaciones implements OnInit {
   ) {
     this.form = this.fb.group({
       paisId: [null],
-      departamentoId: [{ value: null, disabled: true }], // <--- start disabled
+      departamentoId: [{ value: null, disabled: true }], 
       nombreDepartamento: [''],
       nombreCiudad: [''],
-      nombrePais: [''] // added control for crear país
+      nombrePais: [''] 
     });
-    // initialize editForm here after fb is available
+
     this.editForm = this.fb.group({
       paisNombre: [''],
       departamentoNombre: [''],
@@ -62,7 +74,11 @@ export class Ubicaciones implements OnInit {
     this.refreshAll();
   }
 
-  // new: refresh todas las listas y construir la tabla combinada
+  /**
+   * Refresca todas las listas (países, departamentos, ciudades) y reconstruye la tabla.
+   * Llamar al iniciar el componente o después de operaciones que modifiquen datos.
+   */
+
   refreshAll() {
     forkJoin({
       paises: this.paisService.getAll(),
@@ -73,7 +89,7 @@ export class Ubicaciones implements OnInit {
         this.paises = paises;
         this.departamentos = departamentos;
         this.ciudades = ciudades;
-        // cargar banderas para los paises (no bloqueante)
+        // cargar banderas para los paises 
         this.loadFlagsForPaises();
         this.buildTabla();
       },
@@ -83,7 +99,12 @@ export class Ubicaciones implements OnInit {
     });
   }
 
-  // nueva función: intenta obtener la URL de la bandera desde restcountries.com por nombre
+  /**
+   * Intenta obtener la URL de la bandera desde restcountries.com para cada país cargado.
+   * - Paraleliza las peticiones con Promise.all
+   * - Asigna `flagUrl` dentro de cada objeto país si la API devuelve la información.
+   * - No bloquea el renderizado inicial; al completar, reconstruye la tabla.
+   */
   private async loadFlagsForPaises() {
     if (!Array.isArray(this.paises)) return;
     // usar Promise.all para paralelizar
@@ -104,10 +125,14 @@ export class Ubicaciones implements OnInit {
         console.warn('flag fetch failed for', p, e);
       }
     }));
-    // reconstruir tabla ahora que tenemos flags
+    // reconstruir tabla 
     this.buildTabla();
   }
 
+  /**
+   * Construye la estructura usada por la vista de tabla combinada.
+   * Cada fila incluye: paisId, paisNombre, paisFlag, departamentoId, departamentoNombre, ciudadId, ciudadNombre.
+   */
   // build tabla combinada (pais - departamento - ciudad)
   buildTabla() {
     this.tabla = (this.ciudades || []).map(c => {
@@ -116,7 +141,7 @@ export class Ubicaciones implements OnInit {
       return {
         paisId: pais?.id ?? null,
         paisNombre: pais?.nombre ?? pais?.Nombre ?? '',
-        paisFlag: pais?.flagUrl ?? '', // <-- nueva propiedad con URL de la bandera
+        paisFlag: pais?.flagUrl ?? '', 
         departamentoId: dep?.id ?? null,
         departamentoNombre: dep?.nombre ?? dep?.Nombre ?? '',
         ciudadId: c.id ?? null,
@@ -133,19 +158,19 @@ export class Ubicaciones implements OnInit {
       this.departamentos = [];
       this.ciudades = [];
       depControl?.reset(null, { emitEvent: false });
-      depControl?.disable({ emitEvent: false }); // <--- disable when no pais
+      depControl?.disable({ emitEvent: false }); 
       return;
     }
 
     const id = Number(paisId);
-    depControl?.enable({ emitEvent: false }); // <--- enable when pais selected
+    depControl?.enable({ emitEvent: false }); 
     depControl?.reset(null, { emitEvent: false });
 
     this.departamentoService.getByPais(id)
       .subscribe(d => {
         this.departamentos = d;
         console.log('departamentos for pais', id, d);
-        // keep departamento control reset so user must choose one
+
       });
 
     this.ciudades = [];
@@ -166,6 +191,10 @@ export class Ubicaciones implements OnInit {
       });
   }
 
+  /**
+   * Crear un país nuevo usando el control nombrePais del formulario.
+   * Muestra mensajes de éxito/error y refresca la lista local al completar.
+   */
   crearPais() {
     const nombre = this.form.get('nombrePais')?.value?.trim();
     if (!nombre) return;
@@ -183,7 +212,7 @@ export class Ubicaciones implements OnInit {
         this.paisService.getAll().subscribe(p => {
           this.paises = p;
           console.log('paises:', p);
-          // opcional: reconstruir tabla si hay cambios relevants
+          //  reconstruir tabla si hay cambios relevants
           this.buildTabla();
         });
         this.form.patchValue({ nombrePais: '' });
@@ -197,6 +226,10 @@ export class Ubicaciones implements OnInit {
     });
   }
 
+  /**
+   * Crear departamento asociado al país seleccionado.
+   * Habilita/actualiza controles y listas según corresponda.
+   */
   crearDepartamento() {
     const paisId = this.form.get('paisId')?.value;
     const nombre = this.form.get('nombreDepartamento')?.value?.trim();
@@ -220,7 +253,7 @@ export class Ubicaciones implements OnInit {
         this.departamentoService.getByPais(Number(paisId)).subscribe(d => {
           this.departamentos = d;
           console.log('departamentos refreshed for pais', paisId, d);
-          // enable department control if needed
+        
           const depControl = this.form.get('departamentoId');
           depControl?.enable({ emitEvent: false });
         });
@@ -235,6 +268,10 @@ export class Ubicaciones implements OnInit {
     });
   }
 
+  /**
+   * Crear ciudad asociada al departamento seleccionado.
+   * Refresca la lista de ciudades y la tabla combinada.
+   */
   crearCiudad() {
     const departamentoId = this.form.get('departamentoId')?.value;
     const nombre = this.form.get('nombreCiudad')?.value?.trim();
@@ -271,6 +308,10 @@ export class Ubicaciones implements OnInit {
     });
   }
 
+  /**
+   * Elimina fila (secuencial: ciudad -> departamento -> país) con confirmación.
+   * Actualiza mensajes y refresca las listas al finalizar.
+   */
   // agrega: eliminar fila (ciudad -> departamento -> pais) en secuencia y refrescar
   deleteRow(r: any) {
     const ciudadId = r.ciudadId;
@@ -340,7 +381,12 @@ export class Ubicaciones implements OnInit {
     }
   }
 
-  // expuesta para que la ventana popup invoque la actualización
+  /**
+   * Maneja la actualización de nombres (país, departamento, ciudad).
+   * - Recibe payload con ids y nombres.
+   * - Compara con valores actuales y ejecuta sólo las operaciones necesarias.
+   * - Agrupa las llamadas con forkJoin y refresca al finalizar.
+   */
   private handleUpdate(payload: { paisId:number|null, paisNombre:string, departamentoId:number|null, departamentoNombre:string, ciudadId:number|null, ciudadNombre:string }) {
     const ops: any[] = [];
 
@@ -401,6 +447,9 @@ export class Ubicaciones implements OnInit {
     });
   }
 
+  /**
+   * Abre modal de edición y carga los valores actuales en editForm.
+   */
   // abrir ventana popup con formulario simple para editar solo los nombres
   openEditWindow(r: any) {
     // poblar ids y formulario, abrir modal
@@ -417,12 +466,19 @@ export class Ubicaciones implements OnInit {
     this.editModalOpen = true;
   }
 
+  /**
+   * Cierra el modal de edición y limpia el formulario.
+   */
   closeEditModal() {
     this.editModalOpen = false;
     this.editForm.reset();
     this.editIds = { paisId: null, departamentoId: null, ciudadId: null };
   }
 
+  /**
+   * Guarda los cambios desde el modal de edición.
+   * Reutiliza la función handleUpdate para aplicar las actualizaciones necesarias.
+   */
   saveEdit() {
     const payload = {
       paisId: this.editIds.paisId,

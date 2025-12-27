@@ -16,12 +16,11 @@ export class Ciudad {
   getAll() {
     return this.http.get<any[]>(this.api);
   }
-  
+
   create(ciudad: any) {
     return this.http.post(this.api, ciudad);
   }
 
-  // added: update and delete
   update(id: number, dto: any) {
     return this.http.put<void>(`${this.api}/${id}`, dto);
   }
