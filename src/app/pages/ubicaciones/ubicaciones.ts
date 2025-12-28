@@ -248,14 +248,14 @@ export class Ubicaciones implements OnInit {
     this.paisService.create(data).pipe(
     finalize(() => {
       this.loadingPais = false;
-      this.cd.detectChanges(); // <--- forzar actualización
+      this.cd.detectChanges(); 
     })
   ).subscribe({
     next: (res: any) => {
       this.successMessage = 'País creado correctamente';
       this.form.patchValue({ nombrePais: '' });
       this.refreshAll();
-      this.cd.detectChanges(); // <--- forzar actualización
+      this.cd.detectChanges(); 
     },
     error: (err) => {
 				console.error('crearPais error:', err);
@@ -299,14 +299,14 @@ export class Ubicaciones implements OnInit {
     this.departamentoService.create(data).pipe(
       finalize(() => {
         this.loadingDepartamento = false;
-        this.cd.detectChanges(); // <--- forzar actualización
+        this.cd.detectChanges(); 
       })
     ).subscribe({
       next: (res: any) => {
         this.successMessage = 'Departamento creado correctamente';
         this.form.patchValue({ nombreDepartamento: '' });
         this.refreshAll();
-        this.cd.detectChanges(); // <--- forzar actualización
+        this.cd.detectChanges();
       },
       error: (err) => {
 				console.error('crearDepartamento error:', err);
@@ -350,14 +350,14 @@ export class Ubicaciones implements OnInit {
     this.ciudadService.create(data).pipe(
       finalize(() => {
         this.loadingCiudad = false;
-        this.cd.detectChanges(); // <--- forzar actualización
+        this.cd.detectChanges(); 
       })
     ).subscribe({
       next: (res: any) => {
         this.successMessage = 'Ciudad creada correctamente';
         this.form.patchValue({ nombreCiudad: '' });
         this.refreshAll();
-        this.cd.detectChanges(); // <--- forzar actualización
+        this.cd.detectChanges();
       },
       error: (err) => {
 				console.error('crearCiudad error:', err);
