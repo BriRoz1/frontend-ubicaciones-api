@@ -58,7 +58,7 @@ export class Ubicaciones implements OnInit {
     private paisService: Pais,
     private departamentoService: Departamento,
     private ciudadService: Ciudad,
-    private cd: ChangeDetectorRef // <--- inyectar ChangeDetectorRef
+    private cd: ChangeDetectorRef
   ) {
     this.form = this.fb.group({
       paisId: [null],
@@ -66,7 +66,7 @@ export class Ubicaciones implements OnInit {
       nombreDepartamento: [''],
       nombreCiudad: [''],
       nombrePais: [''],
-      filter: [''] // added filter control
+      filter: ['']
     });
 
     this.editForm = this.fb.group({
@@ -138,7 +138,7 @@ export class Ubicaciones implements OnInit {
     }));
     // reconstruir tabla 
     this.buildTabla();
-    this.cd.detectChanges(); // <--- forzar actualización después de cargar banderas
+    this.cd.detectChanges(); 
   }
 
   /**
@@ -245,7 +245,7 @@ export class Ubicaciones implements OnInit {
 		const data = { nombre: nombre };
 
 		this.loadingPais = true;
-this.paisService.create(data).pipe(
+    this.paisService.create(data).pipe(
     finalize(() => {
       this.loadingPais = false;
       this.cd.detectChanges(); // <--- forzar actualización

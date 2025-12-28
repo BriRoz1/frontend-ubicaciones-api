@@ -123,9 +123,10 @@
           <label>País</label>
           <input [value]="deleteNames.paisNombre" readonly class="readonly-input" />
         </div>
-        <button *ngIf="deleteIds.ciudadId" type="button" class="btn btn-warning" style="margin-bottom: 10px; width: 100%;" (click)="deleteOnly('ciudad')">
+         <button *ngIf="deleteIds.paisId" type="button" class="btn btn-danger" style="width: 100%;" (click)="confirmDeletePais()">
             Eliminar
           </button>
+        
         <div class="delete-form-group">
           <label>Departamento</label>
           <input [value]="deleteNames.departamentoNombre" readonly class="readonly-input" />
@@ -137,9 +138,10 @@
           <label>Ciudad</label>
           <input [value]="deleteNames.ciudadNombre" readonly class="readonly-input" />
         </div>
-        <button *ngIf="deleteIds.paisId" type="button" class="btn btn-danger" style="width: 100%;" (click)="confirmDeletePais()">
+        <button *ngIf="deleteIds.ciudadId" type="button" class="btn btn-warning" style="margin-bottom: 10px; width: 100%;" (click)="deleteOnly('ciudad')">
             Eliminar
           </button>
+       
     
         <div *ngIf="deleteWarning" class="delete-warning" style="margin-top: 10px; color: #b71c1c; font-weight: bold;">
           {{ deleteWarning }}
