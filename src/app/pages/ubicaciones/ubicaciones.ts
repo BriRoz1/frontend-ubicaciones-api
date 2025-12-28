@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup } from '@angular/forms';
 import { forkJoin } from 'rxjs';
@@ -34,7 +34,11 @@ export class Ubicaciones implements OnInit {
   paises: any[] = [];
   departamentos: any[] = [];
   ciudades: any[] = [];
-  tabla: any[] = [];
+  // NUEVOS ARRAYS para los selects
+  departamentosSelect: any[] = [];
+  ciudadesSelect: any[] = [];
+  tablaAll: any[] = [];
+  tablaFiltered: any[] = [];
 
   loadingPais = false;
   loadingDepartamento = false;
@@ -53,14 +57,16 @@ export class Ubicaciones implements OnInit {
     private fb: FormBuilder,
     private paisService: Pais,
     private departamentoService: Departamento,
-    private ciudadService: Ciudad
+    private ciudadService: Ciudad,
+    private cd: ChangeDetectorRef // <--- inyectar ChangeDetectorRef
   ) {
     this.form = this.fb.group({
       paisId: [null],
       departamentoId: [{ value: null, disabled: true }], 
       nombreDepartamento: [''],
       nombreCiudad: [''],
-      nombrePais: [''] 
+      nombrePais: [''],
+      filter: [''] // added filter control
     });
 
     this.editForm = this.fb.group({
@@ -89,9 +95,14 @@ export class Ubicaciones implements OnInit {
         this.paises = paises;
         this.departamentos = departamentos;
         this.ciudades = ciudades;
+        // Inicializar selects con todos los datos (vacío si no hay selección)
+        this.departamentosSelect = [];
+        this.ciudadesSelect = [];
         // cargar banderas para los paises 
         this.loadFlagsForPaises();
         this.buildTabla();
+        this.cd.detectChanges(); // <--- forzar actualización
+        console.log('Datos refrescados:', { paises, departamentos, ciudades });
       },
       error: (err) => {
         console.error('Error cargando datos:', err);
@@ -127,7 +138,28 @@ export class Ubicaciones implements OnInit {
     }));
     // reconstruir tabla 
     this.buildTabla();
+    this.cd.detectChanges(); // <--- forzar actualización después de cargar banderas
   }
+
+  /**
+   * Carga la bandera para un solo país (no bloqueante para el UI).
+   */
+  private async fetchFlagForPais(p: any) {
+		try {
+			const name = encodeURIComponent((p.nombre ?? p.Nombre ?? '').trim());
+			if (!name) return;
+			const url = `https://restcountries.com/v3.1/name/${name}?fields=flags,name`;
+			const resp = await fetch(url);
+			if (!resp.ok) return;
+			const data = await resp.json();
+			if (Array.isArray(data) && data[0]?.flags) {
+				p.flagUrl = data[0].flags.png ?? data[0].flags.svg ?? '';
+				this.buildTabla();
+			}
+		} catch (e) {
+			console.warn('flag fetch failed for', p, e);
+		}
+	}
 
   /**
    * Construye la estructura usada por la vista de tabla combinada.
@@ -135,7 +167,7 @@ export class Ubicaciones implements OnInit {
    */
   // build tabla combinada (pais - departamento - ciudad)
   buildTabla() {
-    this.tabla = (this.ciudades || []).map(c => {
+    this.tablaAll = (this.ciudades || []).map(c => {
       const dep = (this.departamentos || []).find(d => d.id === (c.departamentoId ?? c.DepartamentoId));
       const pais = dep ? (this.paises || []).find(p => p.id === (dep.paisId ?? dep.PaisId)) : null;
       return {
@@ -148,6 +180,8 @@ export class Ubicaciones implements OnInit {
         ciudadNombre: c.nombre ?? c.Nombre ?? ''
       };
     });
+    // aplicar filtro actual al reconstruir
+    this.applyFilter();
   }
 
   onPaisChange() {
@@ -155,8 +189,8 @@ export class Ubicaciones implements OnInit {
     const depControl = this.form.get('departamentoId');
 
     if (!paisId) {
-      this.departamentos = [];
-      this.ciudades = [];
+      this.departamentosSelect = [];
+      this.ciudadesSelect = [];
       depControl?.reset(null, { emitEvent: false });
       depControl?.disable({ emitEvent: false }); 
       return;
@@ -166,29 +200,24 @@ export class Ubicaciones implements OnInit {
     depControl?.enable({ emitEvent: false }); 
     depControl?.reset(null, { emitEvent: false });
 
-    this.departamentoService.getByPais(id)
-      .subscribe(d => {
-        this.departamentos = d;
-        console.log('departamentos for pais', id, d);
+    // Filtrar departamentos solo del país seleccionado
+    this.departamentosSelect = (this.departamentos || []).filter(d => (d.paisId ?? d.PaisId) == id);
 
-      });
-
-    this.ciudades = [];
+    // Limpiar ciudades del select
+    this.ciudadesSelect = [];
+    this.cd.detectChanges();
   }
 
   onDepartamentoChange() {
     const depId = this.form.get('departamentoId')?.value;
     if (!depId) {
-      this.ciudades = [];
+      this.ciudadesSelect = [];
       return;
     }
 
     const id = Number(depId);
-    this.ciudadService.getByDepartamento(id)
-      .subscribe(c => {
-        this.ciudades = c;
-        console.log('ciudades for departamento', id, c);
-      });
+    // Filtrar ciudades para el select
+    this.ciudadesSelect = (this.ciudades || []).filter(c => (c.departamentoId ?? c.DepartamentoId) == id);
   }
 
   /**
@@ -196,189 +225,370 @@ export class Ubicaciones implements OnInit {
    * Muestra mensajes de éxito/error y refresca la lista local al completar.
    */
   crearPais() {
-    const nombre = this.form.get('nombrePais')?.value?.trim();
-    if (!nombre) return;
-    const data = { nombre: nombre };
+		const nombre = this.form.get('nombrePais')?.value?.trim();
+		if (!nombre) return;
 
-    this.loadingPais = true;
-    this.paisService.create(data).pipe(
-      finalize(() => this.loadingPais = false)
-    ).subscribe({
-      next: (res) => {
-        console.log('crearPais response:', res);
-        this.successMessage = 'País guardado correctamente';
-        this.errorMessage = null;
-        // actualizar select de paises inmediatamente
-        this.paisService.getAll().subscribe(p => {
-          this.paises = p;
-          console.log('paises:', p);
-          //  reconstruir tabla si hay cambios relevants
-          this.buildTabla();
-        });
-        this.form.patchValue({ nombrePais: '' });
-        setTimeout(() => this.successMessage = null, 3000);
-      },
-      error: (err) => {
-        console.error('crearPais error:', err);
-        this.errorMessage = 'Error al guardar país';
-        setTimeout(() => this.errorMessage = null, 4000);
-      }
-    });
-  }
+		// validación: no números ni caracteres especiales
+		if (!this.isValidText(nombre)) {
+			this.errorMessage = 'No se permiten números ni caracteres especiales';
+			setTimeout(() => this.errorMessage = null, 4000);
+			return;
+		}
+
+		// validación: no duplicados
+		if (this.existsPais(nombre)) {
+			this.errorMessage = 'El país ya existe';
+			setTimeout(() => this.errorMessage = null, 4000);
+			return;
+		}
+
+		const data = { nombre: nombre };
+
+		this.loadingPais = true;
+this.paisService.create(data).pipe(
+    finalize(() => {
+      this.loadingPais = false;
+      this.cd.detectChanges(); // <--- forzar actualización
+    })
+  ).subscribe({
+    next: (res: any) => {
+      this.successMessage = 'País creado correctamente';
+      this.form.patchValue({ nombrePais: '' });
+      this.refreshAll();
+      this.cd.detectChanges(); // <--- forzar actualización
+    },
+    error: (err) => {
+				console.error('crearPais error:', err);
+				this.errorMessage = 'Error al guardar país';
+				setTimeout(() => this.errorMessage = null, 4000);
+			}
+		});
+	}
 
   /**
    * Crear departamento asociado al país seleccionado.
    * Habilita/actualiza controles y listas según corresponda.
    */
   crearDepartamento() {
-    const paisId = this.form.get('paisId')?.value;
-    const nombre = this.form.get('nombreDepartamento')?.value?.trim();
+		const paisId = this.form.get('paisId')?.value;
+		const nombre = this.form.get('nombreDepartamento')?.value?.trim();
 
-    if (!paisId || !nombre) return;
+		if (!paisId || !nombre) return;
 
-    const data = {
-      nombre: nombre,
-      paisId: Number(paisId)
-    };
+		// validación
+		if (!this.isValidText(nombre)) {
+			this.errorMessage = 'No se permiten números ni caracteres especiales';
+			setTimeout(() => this.errorMessage = null, 4000);
+			return;
+		}
+
+		// validación: no duplicados dentro del mismo país
+		const pid = Number(paisId);
+		if (this.existsDepartamento(nombre, pid)) {
+			this.errorMessage = 'El departamento ya existe en este país';
+			setTimeout(() => this.errorMessage = null, 4000);
+			return;
+		}
+
+		const data = {
+			nombre: nombre,
+			paisId: pid
+		};
 
     this.loadingDepartamento = true;
     this.departamentoService.create(data).pipe(
-      finalize(() => this.loadingDepartamento = false)
+      finalize(() => {
+        this.loadingDepartamento = false;
+        this.cd.detectChanges(); // <--- forzar actualización
+      })
     ).subscribe({
-      next: (res) => {
-        console.log('crearDepartamento response:', res);
-        this.successMessage = 'Departamento guardado correctamente';
-        this.errorMessage = null;
-        // actualizar select de departamentos para el país seleccionado
-        this.departamentoService.getByPais(Number(paisId)).subscribe(d => {
-          this.departamentos = d;
-          console.log('departamentos refreshed for pais', paisId, d);
-        
-          const depControl = this.form.get('departamentoId');
-          depControl?.enable({ emitEvent: false });
-        });
+      next: (res: any) => {
+        this.successMessage = 'Departamento creado correctamente';
         this.form.patchValue({ nombreDepartamento: '' });
-        setTimeout(() => this.successMessage = null, 3000);
+        this.refreshAll();
+        this.cd.detectChanges(); // <--- forzar actualización
       },
       error: (err) => {
-        console.error('crearDepartamento error:', err);
-        this.errorMessage = 'Error al guardar departamento';
-        setTimeout(() => this.errorMessage = null, 4000);
-      }
-    });
-  }
+				console.error('crearDepartamento error:', err);
+				this.errorMessage = 'Error al guardar departamento';
+				setTimeout(() => this.errorMessage = null, 4000);
+			}
+		});
+	}
 
   /**
    * Crear ciudad asociada al departamento seleccionado.
    * Refresca la lista de ciudades y la tabla combinada.
    */
   crearCiudad() {
-    const departamentoId = this.form.get('departamentoId')?.value;
-    const nombre = this.form.get('nombreCiudad')?.value?.trim();
+		const departamentoId = this.form.get('departamentoId')?.value;
+		const nombre = this.form.get('nombreCiudad')?.value?.trim();
 
-    if (!departamentoId || !nombre) return;
+		if (!departamentoId || !nombre) return;
 
-    const data = {
-      nombre: nombre,
-      departamentoId: Number(departamentoId)
-    };
+		// validación
+		if (!this.isValidText(nombre)) {
+			this.errorMessage = 'No se permiten números ni caracteres especiales';
+			setTimeout(() => this.errorMessage = null, 4000);
+			return;
+		}
 
-    this.loadingCiudad = true;
+		// validación: no duplicados dentro del mismo departamento
+		const did = Number(departamentoId);
+		if (this.existsCiudad(nombre, did)) {
+			this.errorMessage = 'La ciudad ya existe en este departamento';
+			setTimeout(() => this.errorMessage = null, 4000);
+			return;
+		}
+
+		const data = {
+			nombre: nombre,
+			departamentoId: did
+		};
+
+		this.loadingCiudad = true;
     this.ciudadService.create(data).pipe(
-      finalize(() => this.loadingCiudad = false)
+      finalize(() => {
+        this.loadingCiudad = false;
+        this.cd.detectChanges(); // <--- forzar actualización
+      })
     ).subscribe({
-      next: (res) => {
-        console.log('crearCiudad response:', res);
-        this.successMessage = 'Ciudad guardada correctamente';
-        this.errorMessage = null;
-        // actualizar lista de ciudades para el departamento seleccionado
-        this.ciudadService.getByDepartamento(Number(departamentoId)).subscribe(c => {
-          this.ciudades = c;
-          console.log('ciudades refreshed for departamento', departamentoId, c);
-          this.buildTabla();
-        });
+      next: (res: any) => {
+        this.successMessage = 'Ciudad creada correctamente';
         this.form.patchValue({ nombreCiudad: '' });
-        setTimeout(() => this.successMessage = null, 3000);
+        this.refreshAll();
+        this.cd.detectChanges(); // <--- forzar actualización
       },
       error: (err) => {
-        console.error('crearCiudad error:', err);
-        this.errorMessage = 'Error al guardar ciudad';
+				console.error('crearCiudad error:', err);
+				this.errorMessage = 'Error al guardar ciudad';
+				setTimeout(() => this.errorMessage = null, 4000);
+			}
+		});
+	}
+
+  deleteModalOpen = false;
+  deleteIds: { paisId: number | null, departamentoId: number | null, ciudadId: number | null } = { paisId: null, departamentoId: null, ciudadId: null };
+  deleteNames: { paisNombre?: string, departamentoNombre?: string, ciudadNombre?: string } = {};
+  deleteWarning: string = '';
+
+  /**
+   * Abre modal de edición y carga los valores actuales en editForm.
+   */
+  // abrir ventana popup con formulario simple para editar solo los nombres
+  openEditWindow(r: any) {
+    // poblar ids y formulario, abrir modal
+    this.editIds = {
+      paisId: r.paisId ?? null,
+      departamentoId: r.departamentoId ?? null,
+      ciudadId: r.ciudadId ?? null
+    };
+    this.editForm.patchValue({
+      paisNombre: r.paisNombre ?? '',
+      departamentoNombre: r.departamentoNombre ?? '',
+      ciudadNombre: r.ciudadNombre ?? ''
+    });
+    this.editModalOpen = true;
+  }
+
+  /**
+   * Cierra el modal de edición y limpia el formulario.
+   */
+  closeEditModal() {
+    this.editModalOpen = false;
+    this.editForm.reset();
+    this.editIds = { paisId: null, departamentoId: null, ciudadId: null };
+  }
+
+  /**
+   * Guarda los cambios desde el modal de edición.
+   * Reutiliza la función handleUpdate para aplicar las actualizaciones necesarias.
+   */
+  saveEdit() {
+    const paisNombre = this.editForm.get('paisNombre')?.value?.trim() ?? '';
+    const departamentoNombre = this.editForm.get('departamentoNombre')?.value?.trim() ?? '';
+    const ciudadNombre = this.editForm.get('ciudadNombre')?.value?.trim() ?? '';
+
+    // validar cada campo no vacío que intente guardarse
+    if (paisNombre && !this.isValidText(paisNombre)) {
+      this.errorMessage = 'No se permiten números ni caracteres especiales';
+      setTimeout(() => this.errorMessage = null, 4000);
+      return;
+    }
+    if (departamentoNombre && !this.isValidText(departamentoNombre)) {
+      this.errorMessage = 'No se permiten números ni caracteres especiales';
+      setTimeout(() => this.errorMessage = null, 4000);
+      return;
+    }
+    if (ciudadNombre && !this.isValidText(ciudadNombre)) {
+      this.errorMessage = 'No se permiten números ni caracteres especiales';
+      setTimeout(() => this.errorMessage = null, 4000);
+      return;
+    }
+
+    // comprobaciones de duplicados al editar (excluir id actual)
+    // país
+    if (paisNombre && this.editIds.paisId != null && this.existsPais(paisNombre, this.editIds.paisId)) {
+      this.errorMessage = 'El país ya existe';
+      setTimeout(() => this.errorMessage = null, 4000);
+      return;
+    }
+    // departamento (necesita paisId asociado; intentar obtenerlo desde lista si no se cambió)
+    if (departamentoNombre && this.editIds.departamentoId != null) {
+      const currentDep = (this.departamentos || []).find(d => d.id === this.editIds.departamentoId);
+      const paisIdForDep = currentDep ? (currentDep.paisId ?? currentDep.PaisId) : this.editIds.paisId ?? null;
+      if (paisIdForDep == null) {
+        // no se puede validar correctamente, dejar pasar o bloquear; bloquear por seguridad
+        this.errorMessage = 'No se pudo validar duplicados de departamento';
         setTimeout(() => this.errorMessage = null, 4000);
+        return;
+      }
+      if (this.existsDepartamento(departamentoNombre, Number(paisIdForDep), this.editIds.departamentoId)) {
+        this.errorMessage = 'El departamento ya existe en este país';
+        setTimeout(() => this.errorMessage = null, 4000);
+        return;
+      }
+    }
+    // ciudad (necesita departamentoId)
+    if (ciudadNombre && this.editIds.ciudadId != null) {
+      const currentCiu = (this.ciudades || []).find(c => c.id === this.editIds.ciudadId);
+      const depIdForCiu = currentCiu ? (currentCiu.departamentoId ?? currentCiu.DepartamentoId) : this.editIds.departamentoId ?? null;
+      if (depIdForCiu == null) {
+        this.errorMessage = 'No se pudo validar duplicados de ciudad';
+        setTimeout(() => this.errorMessage = null, 4000);
+        return;
+      }
+      if (this.existsCiudad(ciudadNombre, Number(depIdForCiu), this.editIds.ciudadId)) {
+        this.errorMessage = 'La ciudad ya existe en este departamento';
+        setTimeout(() => this.errorMessage = null, 4000);
+        return;
+      }
+    }
+
+    const payload = {
+      paisId: this.editIds.paisId,
+      paisNombre: paisNombre,
+      departamentoId: this.editIds.departamentoId,
+      departamentoNombre: departamentoNombre,
+      ciudadId: this.editIds.ciudadId,
+      ciudadNombre: ciudadNombre
+    };
+    // reutiliza la lógica existente para actualizar solo los que cambiaron
+    this.handleUpdate(payload);
+    this.closeEditModal();
+  }
+
+  openDeleteWindow(r: any) {
+    this.deleteIds = {
+      paisId: r.paisId ?? null,
+      departamentoId: r.departamentoId ?? null,
+      ciudadId: r.ciudadId ?? null
+    };
+    this.deleteNames = {
+      paisNombre: r.paisNombre ?? '',
+      departamentoNombre: r.departamentoNombre ?? '',
+      ciudadNombre: r.ciudadNombre ?? ''
+    };
+    this.deleteWarning = '';
+    this.deleteModalOpen = true;
+  }
+
+  closeDeleteModal() {
+    this.deleteModalOpen = false;
+    this.deleteIds = { paisId: null, departamentoId: null, ciudadId: null };
+    this.deleteNames = {};
+    this.deleteWarning = '';
+  }
+
+  // Elimina solo la ciudad
+  deleteOnly(tipo: 'ciudad') {
+    this.deleteWarning = '';
+    if (!this.deleteIds.ciudadId) return;
+    if (!confirm('¿Seguro que desea eliminar la ciudad seleccionada?')) return;
+    this.ciudadService.delete(this.deleteIds.ciudadId).subscribe({
+      next: () => {
+        this.successMessage = 'Ciudad eliminada correctamente';
+        this.closeDeleteModal();
+        this.refreshAll();
+        this.cd.detectChanges();
+      },
+      error: err => {
+        this.errorMessage = 'Error al eliminar ciudad';
+        this.closeDeleteModal();
       }
     });
   }
 
-  /**
-   * Elimina fila (secuencial: ciudad -> departamento -> país) con confirmación.
-   * Actualiza mensajes y refresca las listas al finalizar.
-   */
-  // agrega: eliminar fila (ciudad -> departamento -> pais) en secuencia y refrescar
-  deleteRow(r: any) {
-    const ciudadId = r.ciudadId;
-    const departamentoId = r.departamentoId;
-    const paisId = r.paisId;
-
-    if (!confirm('Confirma eliminar ciudad, departamento y país asociados?')) return;
-
-    // eliminar en secuencia: ciudad -> departamento -> pais
-    if (ciudadId) {
-      this.ciudadService.delete(ciudadId).subscribe({
+  // Elimina departamento y todas sus ciudades asociadas
+  confirmDeleteDepartamento() {
+    this.deleteWarning = 'Esta acción eliminará el departamento y todas sus ciudades asociadas.';
+    setTimeout(() => {
+      if (!this.deleteIds.departamentoId) return;
+      if (!confirm('¿Seguro que desea eliminar el departamento y todas sus ciudades asociadas?')) return;
+      const ciudades = (this.ciudades || []).filter(c => (c.departamentoId ?? c.DepartamentoId) == this.deleteIds.departamentoId);
+      const ciudadDeletes = ciudades.map(c => this.ciudadService.delete(c.id));
+      forkJoin(ciudadDeletes.length ? ciudadDeletes : [Promise.resolve()]).subscribe({
         next: () => {
-          console.log('ciudad deleted', ciudadId);
-          if (departamentoId) {
-            this.departamentoService.delete(departamentoId).subscribe({
-              next: () => {
-                console.log('departamento deleted', departamentoId);
-                if (paisId) {
-                  this.paisService.delete(paisId).subscribe({
-                    next: () => {
-                      console.log('pais deleted', paisId);
-                      this.successMessage = 'Registros eliminados correctamente';
-                      this.errorMessage = null;
-                      this.refreshAll();
-                      setTimeout(() => this.successMessage = null, 3000);
-                    },
-                    error: err => {
-                      console.error('error deleting pais', err);
-                      this.errorMessage = 'Error al eliminar país';
-                    }
-                  });
-                } else {
-                  this.refreshAll();
-                }
-              },
-              error: err => {
-                console.error('error deleting departamento', err);
-                this.errorMessage = 'Error al eliminar departamento';
-              }
-            });
-          } else {
-            this.refreshAll();
-          }
+          this.departamentoService.delete(this.deleteIds.departamentoId!).subscribe({
+            next: () => {
+              this.successMessage = 'Departamento y sus ciudades eliminados correctamente';
+              this.closeDeleteModal();
+              this.refreshAll();
+              this.cd.detectChanges();
+            },
+            error: err => {
+              this.errorMessage = 'Error al eliminar departamento';
+              this.closeDeleteModal();
+            }
+          });
         },
         error: err => {
-          console.error('error deleting ciudad', err);
-          this.errorMessage = 'Error al eliminar ciudad';
+          this.errorMessage = 'Error al eliminar ciudades del departamento';
+          this.closeDeleteModal();
         }
       });
-    } else {
-      // si no hay ciudad, intenta borrar dept/pais
-      if (departamentoId) {
-        this.departamentoService.delete(departamentoId).subscribe({
-          next: () => {
-            if (paisId) {
-              this.paisService.delete(paisId).subscribe({
+    }, 100);
+  }
+
+  // Elimina país y todos sus departamentos y ciudades asociadas
+  confirmDeletePais() {
+    this.deleteWarning = 'Esta acción eliminará el país, todos sus departamentos y todas sus ciudades asociadas.';
+    setTimeout(() => {
+      if (!this.deleteIds.paisId) return;
+      if (!confirm('¿Seguro que desea eliminar el país y todos sus departamentos y ciudades asociados?')) return;
+      const departamentos = (this.departamentos || []).filter(d => (d.paisId ?? d.PaisId) == this.deleteIds.paisId);
+      const ciudades = (this.ciudades || []).filter(c => departamentos.some(d => d.id === (c.departamentoId ?? c.DepartamentoId)));
+      const ciudadDeletes = ciudades.map(c => this.ciudadService.delete(c.id));
+      const departamentoDeletes = departamentos.map(d => this.departamentoService.delete(d.id));
+      forkJoin(ciudadDeletes.length ? ciudadDeletes : [Promise.resolve()]).subscribe({
+        next: () => {
+          forkJoin(departamentoDeletes.length ? departamentoDeletes : [Promise.resolve()]).subscribe({
+            next: () => {
+              this.paisService.delete(this.deleteIds.paisId!).subscribe({
                 next: () => {
+                  this.successMessage = 'País, departamentos y ciudades eliminados correctamente';
+                  this.closeDeleteModal();
                   this.refreshAll();
+                  this.cd.detectChanges();
                 },
-                error: err => { console.error(err); this.errorMessage = 'Error al eliminar país'; }
+                error: err => {
+                  this.errorMessage = 'Error al eliminar país';
+                  this.closeDeleteModal();
+                }
               });
-            } else this.refreshAll();
-          },
-          error: err => { console.error(err); this.errorMessage = 'Error al eliminar departamento'; }
-        });
-      }
-    }
+            },
+            error: err => {
+              this.errorMessage = 'Error al eliminar departamentos del país';
+              this.closeDeleteModal();
+            }
+          });
+        },
+        error: err => {
+          this.errorMessage = 'Error al eliminar ciudades del país';
+          this.closeDeleteModal();
+        }
+      });
+    }, 100);
   }
 
   /**
@@ -437,6 +647,7 @@ export class Ubicaciones implements OnInit {
         this.successMessage = 'Registros actualizados correctamente';
         this.errorMessage = null;
         this.refreshAll();
+        this.cd.detectChanges(); // <--- forzar actualización
         setTimeout(() => this.successMessage = null, 3000);
       },
       error: err => {
@@ -447,49 +658,57 @@ export class Ubicaciones implements OnInit {
     });
   }
 
-  /**
-   * Abre modal de edición y carga los valores actuales en editForm.
-   */
-  // abrir ventana popup con formulario simple para editar solo los nombres
-  openEditWindow(r: any) {
-    // poblar ids y formulario, abrir modal
-    this.editIds = {
-      paisId: r.paisId ?? null,
-      departamentoId: r.departamentoId ?? null,
-      ciudadId: r.ciudadId ?? null
-    };
-    this.editForm.patchValue({
-      paisNombre: r.paisNombre ?? '',
-      departamentoNombre: r.departamentoNombre ?? '',
-      ciudadNombre: r.ciudadNombre ?? ''
-    });
-    this.editModalOpen = true;
-  }
+  // permitir letras (incluye acentos y ñ) y espacios solamente
+	private nameRegex = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜüÀ-ÖØ-öø-ÿ\s]+$/;
 
-  /**
-   * Cierra el modal de edición y limpia el formulario.
-   */
-  closeEditModal() {
-    this.editModalOpen = false;
-    this.editForm.reset();
-    this.editIds = { paisId: null, departamentoId: null, ciudadId: null };
-  }
+	private isValidText(v: any): boolean {
+		const s = (v ?? '').toString().trim();
+		return s.length > 0 && this.nameRegex.test(s);
+	}
 
-  /**
-   * Guarda los cambios desde el modal de edición.
-   * Reutiliza la función handleUpdate para aplicar las actualizaciones necesarias.
-   */
-  saveEdit() {
-    const payload = {
-      paisId: this.editIds.paisId,
-      paisNombre: this.editForm.get('paisNombre')?.value?.trim() ?? '',
-      departamentoId: this.editIds.departamentoId,
-      departamentoNombre: this.editForm.get('departamentoNombre')?.value?.trim() ?? '',
-      ciudadId: this.editIds.ciudadId,
-      ciudadNombre: this.editForm.get('ciudadNombre')?.value?.trim() ?? ''
-    };
-    // reutiliza la lógica existente para actualizar solo los que cambiaron
-    this.handleUpdate(payload);
-    this.closeEditModal();
-  }
+	// helpers para normalizar y comprobar existencia (pueden excluir un id)
+	private normalizeString(v: any): string {
+		return (v ?? '').toString().trim().toLowerCase();
+	}
+
+	private getEntityName(entity: any): string {
+		return this.normalizeString(entity?.nombre ?? entity?.Nombre ?? '');
+	}
+
+	private existsPais(nombre: string, excludeId?: number | null): boolean {
+		const n = this.normalizeString(nombre);
+		return (this.paises || []).some(p => this.getEntityName(p) === n && (excludeId == null || p.id !== excludeId));
+	}
+
+	private existsDepartamento(nombre: string, paisId: number, excludeId?: number | null): boolean {
+		const n = this.normalizeString(nombre);
+		return (this.departamentos || []).some(d => {
+			const samePais = (d.paisId ?? d.PaisId) == paisId;
+			const sameName = this.normalizeString(d.nombre ?? d.Nombre) === n;
+			return samePais && sameName && (excludeId == null || d.id !== excludeId);
+		});
+	}
+
+	private existsCiudad(nombre: string, departamentoId: number, excludeId?: number | null): boolean {
+		const n = this.normalizeString(nombre);
+		return (this.ciudades || []).some(c => {
+			const sameDep = (c.departamentoId ?? c.DepartamentoId) == departamentoId;
+			const sameName = this.normalizeString(c.nombre ?? c.Nombre) === n;
+			return sameDep && sameName && (excludeId == null || c.id !== excludeId);
+		});
+	}
+
+	// método para aplicar filtro desde el input
+	applyFilter() {
+		const q = (this.form.get('filter')?.value ?? '').toString().trim().toLowerCase();
+		if (!q) {
+			this.tablaFiltered = [...this.tablaAll];
+			return;
+		}
+		this.tablaFiltered = (this.tablaAll || []).filter(r => {
+			return (r.paisNombre ?? '').toString().toLowerCase().includes(q)
+				|| (r.departamentoNombre ?? '').toString().toLowerCase().includes(q)
+				|| (r.ciudadNombre ?? '').toString().toLowerCase().includes(q);
+		});
+	}
 }

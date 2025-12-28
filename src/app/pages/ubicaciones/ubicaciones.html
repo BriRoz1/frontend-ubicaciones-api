@@ -18,7 +18,7 @@
       <label>Departamento</label>
       <select (change)="onDepartamentoChange()" formControlName="departamentoId">
         <option [ngValue]="null">Seleccione Departamento</option>
-        <option *ngFor="let d of departamentos" [ngValue]="d.id">{{ d.nombre }}</option>
+        <option *ngFor="let d of departamentosSelect" [ngValue]="d.id">{{ d.nombre }}</option>
       </select>
     </div>
   </section>
@@ -52,42 +52,40 @@
     </div>
   </section>
 
-  <section class="list">
-    <h3>Ciudades</h3>
-    <ul>
-      <li *ngFor="let c of ciudades">{{ c.nombre }}</li>
-    </ul>
-  </section>
 
-  <!-- Nueva sección: tabla combinada -->
   <section class="table-section">
     <h3>Todos los registros</h3>
+
+    <!-- FILTRO -->
+    <div class="filter-row">
+      <input formControlName="filter" placeholder="Filtrar" (input)="applyFilter()" autocomplete="off" />
+      <button type="button" class="btn btn-clear" (click)="form.patchValue({ filter: '' }); applyFilter();">Limpiar</button>
+    </div>
+
     <table class="data-table">
       <thead>
         <tr>
           <th>País</th>
           <th>Departamento</th>
           <th>Ciudad</th>
-          <th>Acciones</th> <!-- nueva columna -->
+          <th>Acciones</th> 
         </tr>
       </thead>
       <tbody>
-        <tr *ngFor="let r of tabla">
+        <tr *ngFor="let r of tablaFiltered">
           <td>
-            <!-- bandera a la izquierda -->
             <img *ngIf="r.paisFlag" [src]="r.paisFlag" alt="flag" class="flag" style="width:24px;height:16px;vertical-align:middle;margin-right:8px;border:1px solid #ddd;">
-            <!-- emoji con tooltip que contiene la recomendación de API -->
-            <span title="🌍 APIs recomendadas para banderas de países\n1. REST Countries API\nURL base: https://restcountries.com/v3.1/name/{country}\nEjemplo: GET https://restcountries.com/v3.1/name/colombia\nRespuesta JSON incluye: { name:{common: 'Colombia'}, flags:{ png: 'https://flagcdn.com/w320/co.png', svg: 'https://flagcdn.com/co.svg' } }" style="margin-right:6px;">🌍</span>
+            
             {{ r.paisNombre }}
           </td>
           <td>{{ r.departamentoNombre }}</td>
           <td>{{ r.ciudadNombre }}</td>
           <td class="row-actions">
             <button type="button" class="btn btn-edit" (click)="openEditWindow(r)">Editar</button>
-            <button type="button" class="btn btn-danger" (click)="deleteRow(r)">Eliminar</button>
+            <button type="button" class="btn btn-danger" (click)="openDeleteWindow(r)">Eliminar</button>
           </td>
         </tr>
-        <tr *ngIf="tabla.length === 0">
+        <tr *ngIf="tablaFiltered.length === 0">
           <td colspan="4" class="empty">No se encontraron registros</td>
         </tr>
       </tbody>
@@ -116,6 +114,70 @@
     </div>
   </div>
 
+  <!-- Modal embebido para eliminar, ahora con formulario y estilos mejorados -->
+  <div class="modal-overlay" *ngIf="deleteModalOpen">
+    <div class="modal" style="max-width: 420px;">
+      <h3 style="margin-bottom: 18px;">Eliminar registro</h3>
+      <form class="modal-form">
+        <div class="delete-form-group">
+          <label>País</label>
+          <input [value]="deleteNames.paisNombre" readonly class="readonly-input" />
+        </div>
+        <button *ngIf="deleteIds.ciudadId" type="button" class="btn btn-warning" style="margin-bottom: 10px; width: 100%;" (click)="deleteOnly('ciudad')">
+            Eliminar
+          </button>
+        <div class="delete-form-group">
+          <label>Departamento</label>
+          <input [value]="deleteNames.departamentoNombre" readonly class="readonly-input" />
+        </div>
+         <button *ngIf="deleteIds.departamentoId" type="button" class="btn btn-danger" style="margin-bottom: 10px; width: 100%;" (click)="confirmDeleteDepartamento()">
+            Eliminar
+          </button>
+        <div class="delete-form-group">
+          <label>Ciudad</label>
+          <input [value]="deleteNames.ciudadNombre" readonly class="readonly-input" />
+        </div>
+        <button *ngIf="deleteIds.paisId" type="button" class="btn btn-danger" style="width: 100%;" (click)="confirmDeletePais()">
+            Eliminar
+          </button>
+    
+        <div *ngIf="deleteWarning" class="delete-warning" style="margin-top: 10px; color: #b71c1c; font-weight: bold;">
+          {{ deleteWarning }}
+        </div>
+        <div class="modal-actions" style="margin-top: 18px;">
+          <button type="button" class="btn btn-cancel" style="width: 100%;" (click)="closeDeleteModal()">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+<style>
+/* Opcional: mejora visual para inputs readonly y botones */
+.readonly-input {
+  width: 100%;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  color: #333;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+.delete-form-group label {
+  font-weight: 500;
+  margin-bottom: 2px;
+  display: block;
+}
+.delete-actions .btn {
+  font-size: 15px;
+}
+.delete-warning {
+  background: #fff3cd;
+  border: 1px solid #ffeeba;
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+</style>
 </div>
 
 <!--
